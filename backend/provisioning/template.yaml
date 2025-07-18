@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Account Provisioning System
+
+Globals:
+  Function:
+    Timeout: 300
+    Runtime: python3.9
+    Environment:
+      Variables:
+        METADATA_TABLE: !Ref MetadataTable
+        ORG_ROOT_ID: r-xxxx  # Replace with your root ID
+
+Resources:
+  ProvisioningFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: app.lambda_handler
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - organizations:CreateAccount
+                - organizations:CreateOrganizationalUnit
+                - organizations:ListOrganizationalUnitsForParent
+                - organizations:MoveAccount
+                - organizations:DescribeCreateAccountStatus
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /accounts
+            Method: POST
+
+  StatusCheckerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../status-checker/
+      Handler: app.lambda_handler
+      Timeout: 300
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - organizations:DescribeCreateAccountStatus
+                - organizations:MoveAccount
+                - dynamodb:Scan
+                - dynamodb:UpdateItem
+                - ses:SendEmail
+              Resource: "*"
+      Events:
+        Schedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(5 minutes)
+
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AccountMetadata
+      AttributeDefinitions:
+        - AttributeName: requestId
+          AttributeType: S
+        - AttributeName: accountId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: requestId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+
+Outputs:
+  ApiUrl:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/accounts/"
